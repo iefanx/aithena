@@ -1,39 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { FaMicrophone, FaMicrophoneAltSlash } from "react-icons/fa";
 import { SiGoogleassistant } from "react-icons/si";
 import ReactMarkdown from "react-markdown";
 import { motion } from "framer-motion";
-import * as sdk from "microsoft-cognitiveservices-speech-sdk";
-
-// Custom hook for Azure Speech SDK
-const useAzureTTS = (apiKey, region) => {
-  const speak = useCallback((text) => {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(apiKey, region);
-    const audioConfig = sdk.AudioConfig.fromDefaultSpeakerOutput();
-    const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
-
-    return new Promise((resolve, reject) => {
-      synthesizer.speakTextAsync(
-        text,
-        (result) => {
-          if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-            resolve();
-          } else {
-            reject(result.errorDetails);
-          }
-          synthesizer.close();
-        },
-        (err) => {
-          reject(err);
-          synthesizer.close();
-        }
-      );
-    });
-  }, [apiKey, region]);
-
-  return { speak };
-};
 
 const ChatBot = () => {
   const [history, setHistory] = useState([]);
@@ -42,6 +12,8 @@ const ChatBot = () => {
   const [showPopover, setShowPopover] = useState(false);
 
   const recognitionRef = useRef(null);
+  const synthRef = useRef(window.speechSynthesis);
+  const utteranceRef = useRef(null);
   const chatContainerRef = useRef(null);
 
   const [genAI, setGenAI] = useState(null);
@@ -55,11 +27,11 @@ const ChatBot = () => {
     responseMimeType: "text/plain",
   };
 
-  const { speak } = useAzureTTS(import.meta.env.VITE_AZURE_API_KEY, import.meta.env.VITE_AZURE_REGION);
-
   useEffect(() => {
     const initializeGenAI = async () => {
-      const genAIInstance = new GoogleGenerativeAI(import.meta.env.VITE_API_KEY);
+      const genAIInstance = new GoogleGenerativeAI(
+        import.meta.env.VITE_API_KEY
+      );
       const modelInstance = await genAIInstance.getGenerativeModel({
         model: "gemini-1.5-flash-latest",
         generationConfig,
@@ -76,14 +48,16 @@ const ChatBot = () => {
 
   useEffect(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
     }
   }, [history]);
 
   useEffect(() => {
     if (!genAI || !model) return;
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
       setShowPopover(true);
@@ -127,8 +101,7 @@ const ChatBot = () => {
         ...prevHistory,
         { role: "model", parts: text },
       ]);
-      await speak(text); // Use Azure TTS
-      setIsProcessing(false);
+      speakResponse(markdownToPlainText(text));
     } catch (error) {
       setSpeechError(error.message);
       setIsProcessing(false);
@@ -140,9 +113,33 @@ const ChatBot = () => {
     setIsProcessing(false);
   };
 
+  const speakResponse = (text) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.3;
+    utterance.pitch = 0.8;
+
+    const voices = synthRef.current.getVoices();
+    utterance.voice =
+      voices.find((voice) => voice.lang.startsWith("en")) || voices[0];
+
+    utterance.onend = () => {
+      setIsProcessing(false);
+    };
+
+    utteranceRef.current = utterance;
+    synthRef.current.speak(utterance);
+  };
+
+  const markdownToPlainText = (markdown) => {
+    const div = document.createElement("div");
+    div.innerHTML = markdown;
+    return div.textContent || div.innerText || "";
+  };
+
   const toggleSpeechRecognition = () => {
     if (!recognitionRef.current) return;
 
+    synthRef.current.cancel();
     if (isProcessing) {
       recognitionRef.current.stop();
       setIsProcessing(false);
@@ -161,7 +158,9 @@ const ChatBot = () => {
         {history.map((item, index) => (
           <div
             key={index}
-            className={item.role === "user" ? "text-right mb-2" : "text-left mb-2"}
+            className={
+              item.role === "user" ? "text-right mb-2" : "text-left mb-2"
+            }
           >
             {item.role === "user" ? (
               <span className="prose font-sans font-bold text-blue-400">
@@ -192,6 +191,7 @@ const ChatBot = () => {
         {isProcessing && (
           <motion.div
             className="absolute w-20 h-20 rounded-full border-4 border-blue-300 animate-ping"
+            onMouseDown={() => synthRef.current.cancel()}
           ></motion.div>
         )}
       </div>
