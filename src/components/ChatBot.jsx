@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { FaMicrophone, FaMicrophoneAltSlash } from "react-icons/fa";
 import { SiGoogleassistant } from "react-icons/si";
 import ReactMarkdown from "react-markdown";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 const ChatBot = () => {
   const [history, setHistory] = useState([]);
@@ -20,32 +20,27 @@ const ChatBot = () => {
   const [model, setModel] = useState(null);
 
   const generationConfig = {
-    temperature: 0.7,
+    temperature: 1,
     topP: 0.95,
-    topK: 40,
-    maxOutputTokens: 4096,
+    topK: 64,
+    maxOutputTokens: 8192,
     responseMimeType: "text/plain",
   };
 
   useEffect(() => {
     const initializeGenAI = async () => {
-      try {
-        const genAIInstance = new GoogleGenerativeAI(
-          import.meta.env.VITE_API_KEY
-        );
-        const modelInstance = await genAIInstance.getGenerativeModel({
-          model: "gemini-1.5-flash-latest",
-          generationConfig,
-          systemInstruction:
-            "You are a voice assistant created by Iefan. Provide helpful, concise answers in 5 lines or less. Use plain text without emoji or markdown. Always respond in English.",
-        });
+      const genAIInstance = new GoogleGenerativeAI(
+        import.meta.env.VITE_API_KEY
+      );
+      const modelInstance = await genAIInstance.getGenerativeModel({
+        model: "gemini-1.5-flash-latest",
+        generationConfig,
+        systemInstruction:
+          "I'm a voice assistant created by Iefan. I'll provide helpful, concise answers, aiming for under 5 lines in plain text without emoji & markdown, you should always provide response in english.",
+      });
 
-        setGenAI(genAIInstance);
-        setModel(modelInstance);
-      } catch (error) {
-        console.error("Failed to initialize GenAI:", error);
-        setSpeechError("Failed to initialize AI model. Please try again later.");
-      }
+      setGenAI(genAIInstance);
+      setModel(modelInstance);
     };
 
     initializeGenAI();
@@ -53,7 +48,8 @@ const ChatBot = () => {
 
   useEffect(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
     }
   }, [history]);
 
@@ -86,7 +82,7 @@ const ChatBot = () => {
     };
   }, [genAI, model]);
 
-  const handleResult = useCallback(async (event) => {
+  const handleResult = async (event) => {
     const transcript = event.results[0][0].transcript.trim();
 
     setHistory((prevHistory) => [
@@ -107,28 +103,24 @@ const ChatBot = () => {
       ]);
       speakResponse(markdownToPlainText(text));
     } catch (error) {
-      console.error("Error processing speech:", error);
-      setSpeechError("Failed to process your request. Please try again.");
+      setSpeechError(error.message);
       setIsProcessing(false);
     }
-  }, [model]);
+  };
 
-  const handleError = useCallback((event) => {
-    console.error("Speech recognition error:", event.error);
-    setSpeechError(`Speech recognition error: ${event.error}`);
+  const handleError = (event) => {
+    setSpeechError(event.error);
     setIsProcessing(false);
-  }, []);
+  };
 
-  const speakResponse = useCallback((text) => {
+  const speakResponse = (text) => {
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.2;
-    utterance.pitch = 1.0;
+    utterance.rate = 1.3;
+    utterance.pitch = 0.8;
 
     const voices = synthRef.current.getVoices();
     utterance.voice =
-      voices.find((voice) => voice.name === "Google US English") ||
-      voices.find((voice) => voice.lang === "en-US") ||
-      voices[0];
+      voices.find((voice) => voice.lang.startsWith("en")) || voices[0];
 
     utterance.onend = () => {
       setIsProcessing(false);
@@ -136,7 +128,7 @@ const ChatBot = () => {
 
     utteranceRef.current = utterance;
     synthRef.current.speak(utterance);
-  }, []);
+  };
 
   const markdownToPlainText = (markdown) => {
     const div = document.createElement("div");
@@ -144,7 +136,7 @@ const ChatBot = () => {
     return div.textContent || div.innerText || "";
   };
 
-  const toggleSpeechRecognition = useCallback(() => {
+  const toggleSpeechRecognition = () => {
     if (!recognitionRef.current) return;
 
     synthRef.current.cancel();
@@ -154,49 +146,41 @@ const ChatBot = () => {
     } else {
       recognitionRef.current.start();
       setIsProcessing(true);
-      setSpeechError(null);
     }
-  }, [isProcessing]);
+  };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-4">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4">
       <div
-        className="flex flex-col w-full h-[70vh] overflow-y-auto mb-4 p-2 rounded bg-gray-800"
+        className="flex flex-col w-full h-[70vh] overflow-y-auto mb-4 p-2 rounded"
         ref={chatContainerRef}
       >
-        <AnimatePresence>
-          {history.map((item, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3 }}
-              className={`${
-                item.role === "user" ? "text-right mb-2" : "text-left mb-2"
-              }`}
-            >
-              {item.role === "user" ? (
-                <span className="inline-block bg-blue-600 rounded-lg px-4 py-2 text-white">
-                  {item.parts}
-                </span>
-              ) : (
-                <ReactMarkdown className="inline-block bg-gray-700 rounded-lg px-4 py-2 text-gray-200">
-                  {item.parts}
-                </ReactMarkdown>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
+        {history.map((item, index) => (
+          <div
+            key={index}
+            className={
+              item.role === "user" ? "text-right mb-2" : "text-left mb-2"
+            }
+          >
+            {item.role === "user" ? (
+              <span className="prose font-sans font-bold text-blue-400">
+                {item.parts}
+              </span>
+            ) : (
+              <ReactMarkdown className="prose bg-clip-text text-transparent bg-gradient-to-b from-neutral-200 to-neutral-400 font-sans font-bold prose-invert">
+                {item.parts}
+              </ReactMarkdown>
+            )}
+          </div>
+        ))}
       </div>
       <div className="relative flex items-center justify-center w-full h-20">
         <motion.button
           onMouseDown={toggleSpeechRecognition}
           className={`flex items-center justify-center w-20 h-20 rounded-full shadow-lg transition ${
-            isProcessing ? "bg-red-600" : "bg-blue-600"
+            isProcessing ? "bg-red-600 pulse" : "bg-blue-600"
           }`}
           whileTap={{ scale: 0.9 }}
-          whileHover={{ scale: 1.1 }}
         >
           {isProcessing ? (
             <FaMicrophoneAltSlash className="text-3xl text-white" />
@@ -206,44 +190,25 @@ const ChatBot = () => {
         </motion.button>
         {isProcessing && (
           <motion.div
-            className="absolute w-24 h-24 rounded-full border-4 border-blue-300"
-            animate={{ scale: [1, 1.2, 1] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
+            className="absolute w-20 h-20 rounded-full border-4 border-blue-300 animate-ping"
+            onMouseDown={() => synthRef.current.cancel()}
           ></motion.div>
         )}
       </div>
-      <AnimatePresence>
-        {speechError && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="mt-4 p-2 bg-red-600 text-white rounded"
+      {showPopover && (
+        <div className="absolute top-0 left-0 right-0 p-4 bg-red-600 text-white text-center">
+          Web Speech API is not supported in this browser. Please open this web
+          app on Chrome or Safari.
+          <a
+            href="https://ai.iefan.tech"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 font-bold underline ml-1"
           >
-            {speechError}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {showPopover && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-0 left-0 right-0 p-4 bg-red-600 text-white text-center"
-          >
-            Web Speech API is not supported in this browser. Please use Chrome or Safari.
-            <a
-              href="https://ai.iefan.tech"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-300 font-bold underline ml-1"
-            >
-              Learn more
-            </a>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            Click here
+          </a>
+        </div>
+      )}
     </div>
   );
 };
